@@ -1,0 +1,3 @@
+output,observed_start_lagged_noisy,predicted_start,predicted_optimum,predicted_change,true_steady_state_start,true_steady_state_optimum,true_steady_state_change
+y1_quality,88.33239026527855,88.432686,88.65528,0.22259521,88.552864,88.75493,0.20206451
+y2_energy_load,70.5185391927015,70.694275,70.665276,-0.028999329,70.83029,70.59909,-0.23120117
