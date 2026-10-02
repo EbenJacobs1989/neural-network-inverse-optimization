@@ -1,134 +1,200 @@
 # Neural Network Inverse Optimization
 
-Project scaffold for generating process data, training and validating a neural
-network model, performing inverse optimization, comparing optimizers, and
-running closed-loop simulations.
+**A reproducible, end-to-end research playground for data-driven process control.**
 
-Run `notebooks/01_generate_data.ipynb` with a Python kernel from the `notebooks/`
-directory to generate `data/synthetic_process_data.csv` and inspect time-series,
-output-distribution, and correlation plots. The notebook requires NumPy, pandas,
-SciPy, Matplotlib, and seaborn; its `generate_process_data` function returns a
-reproducible DataFrame with 8,000 sequential observations by default.
+Generate a simulated mineral-processing plant, learn its input/output behavior,
+optimize manipulated variables with a frozen neural network, test the proposed
+actions against the *original* plant equation, and finally replay them in a
+lagged closed loop. The important question is not simply whether an optimizer
+reduces its model's loss: **does the real simulated process improve?**
 
-Run `notebooks/02_train_model.ipynb` next from `notebooks/` with PyTorch and
-scikit-learn installed. It trains a 10-32-32-16-2 SiLU network with chronological
-70/15/15 train/validation/test splits and train-only input/output scaling.
-The notebook saves `process_model.pt`, `input_scaler.pkl`, and `output_scaler.pkl`
-in `models/`, plus `training_metrics.csv`, `parity_plot.png`,
-`residual_plots.png`, and `training_curves.png` in `results/`. The model
-checkpoint contains the `state_dict`, column ordering, hidden sizes, and best
-epoch; only load pickle scalers from trusted sources.
+> [!IMPORTANT]
+> This is a synthetic research example, **not a deployable controller**. The
+> learned surrogate is static, whereas the original plant has first-order
+> dynamics and measurement noise. Output and training-support constraints are
+> soft penalties. Review original-plant and closed-loop results before drawing
+> process-control conclusions.
 
-Run `notebooks/03_validate_model.ipynb` from `notebooks/` to evaluate the saved
-model on the final 15% of the time series. It exports held-out R², MAE and RMSE,
-actual/predicted and residual diagnostics, physical-unit automatic-differentiation
-gradients and unit-comparable sensitivity rankings, one-at-a-time responses and
-control-interaction contours. CSV tables and `validation_*.png` figures are saved
-in `results/`. The neural model is static; its gradients and sweeps are not
-dynamic or causal plant responses.
+## The experiment at a glance
 
-`src/objective_functions.py` provides `InverseProcessObjective` for differentiable
-inverse optimization. Supply the frozen surrogate from the training checkpoint,
-its train-fitted scaler `mean_` and `scale_` vectors, control bounds, and
-training-only support bounds (for example, per-input 1st/99th percentiles of
-the first 70% of the data). All bounds and optional quality/energy limits are
-in physical units. Call it with tensors of five fixed disturbances, five
-candidate controls (with `requires_grad=True`), and five previous controls,
-all in checkpoint input order and the model's dtype/device. The scalar loss
-rewards standardized quality, penalizes standardized energy, scaled control
-moves, squared control/output limit violations, and excursions beyond the
-training support envelope. Weights are configurable and nonnegative; the
-model parameters are frozen, while gradients flow to candidate controls.
-The support envelope is per-variable, not a guarantee that joint operating
-conditions are represented in the training data.
+```text
+8,000 sequential synthetic observations
+       │
+       ├── 5 correlated, slow disturbances (d1–d5)
+       ├── 5 smooth operator-controlled inputs (u1–u5)
+       └── 2 lagged, noisy measurements (quality and energy)
+       │
+       ▼
+Chronological train / validation / test split (70% / 15% / 15%)
+       │
+       ▼
+10 → 32 → 32 → 16 → 2 SiLU neural surrogate
+       │
+       ├── Hold disturbances fixed; optimize bounded control moves
+       ├── Check recommendations against the original plant equation
+       └── Replay 1,000 steps with original plant dynamics
+```
 
-`src/constraints.py` offers `ControlProjection`, `SoftplusConstraintPenalty`,
-and `SigmoidControlParameterization` with default normalized actuator ranges
-`[0.2, 1.0]`, `[0.1, 0.9]`, `[0.0, 1.0]`, `[0.2, 1.0]`, `[0.1, 0.9]` and a
-per-control move limit of `0.05` per step. Pass either one five-element control
-vector or a tensor shaped `(..., horizon, 5)` plus the preceding control vector
-shaped `(..., 5)`. Projection and sigmoid mapping enforce both constraints;
-the differentiable softplus penalty discourages violations without enforcing
-feasibility. These bounds are **dimensionless actuator commands**, not the
-physical-unit model features. Convert commands to physical units before
-evaluating the surrogate or inverse objective; use matched physical bounds
-in the objective to avoid mixing units.
+| Objective | Meaning |
+|---|---|
+| **Increase quality** | Reward `y1_quality` in the optimization loss. |
+| **Reduce energy** | Penalize `y2_energy_load` in the optimization loss. |
+| **Avoid unsafe moves** | Enforce actuator bounds and a maximum normalized command move of `0.05` per step. |
+| **Stay credible** | Penalize predicted output violations and departures from a training-derived support envelope. |
+| **Check reality** | Measure actual static-plant errors and lagged closed-loop outcomes, not just neural predictions. |
 
-Run `notebooks/04_inverse_optimization.ipynb` from `notebooks/` after training.
-It reproducibly selects a feasible held-out test row, holds its five disturbances
-fixed, and minimizes `InverseProcessObjective` with Adam over five logits.
-`SigmoidControlParameterization` keeps normalized commands within their actuator
-bounds and within 0.05 of the starting commands. The conversion from normalized
-commands to physical controls uses the first 70% of the data's 1st/99th
-percentile limits; those same train-only limits define the support envelope.
-Quality/energy limits are set relative to the starting prediction and penalized
-(not guaranteed). The notebook saves convergence, stepwise objective/predictions/
-violations/moves, starting and final controls, and model-versus-original-plant
-comparisons to `results/inverse_optimization_*`. Original-plant improvements are
-noise-free steady-state counterfactuals with identical disturbances, not
-instantaneous measured changes from the lagged process.
+### Inputs, outputs and units
 
-Run `notebooks/05_compare_optimizers.ipynb` from `notebooks/` to benchmark
-Adam, SGD, RMSprop and LBFGS on the same 100 seeded, feasible held-out test
-points. Each gets 60 steps with the same frozen model, objective, output
-limits, training-support penalty and sigmoid-enforced actuator/rate limits.
-The notebook saves per-scenario runs, per-step convergence and a summary
-ranking as `results/optimizer_benchmark_*.csv`, plus box and convergence
-plots as PNGs. It selects a best-balanced optimizer by equally ranking
-feasibility rate, median and 10th-percentile objective gain, improvement
-rate and median wall-clock time. Times depend on hardware; LBFGS closure
-evaluations are recorded separately from steps. Physical control distances
-mix units, so compare normalized command distances across controls instead.
+| Role | Columns |
+|---|---|
+| Observed disturbances, held fixed during each decision | `d1_feed_grade`, `d2_hardness`, `d3_moisture`, `d4_impurity`, `d5_ambient` |
+| Manipulated variables, in the generator's physical units | `u1_feed_rate`, `u2_water_rate`, `u3_reagent_rate`, `u4_speed`, `u5_temperature_setpoint` |
+| Outputs | `y1_quality`, `y2_energy_load` |
 
-The second half of notebook 05 extends the same 100-scenario benchmark to
-Adam, LBFGS, particle swarm optimization (PSO), differential evolution (DE)
-and hybrid PSO+LBFGS. For each scenario it records the neural-network
-recommendation and a separately computed, approximate optimum of the
-original noise-free steady-state generating function. Both objectives use the
-same training-only scaling, rate-feasible control domain, starting controls,
-output-limit penalties and support penalty. `results/optimizer_control_runs.csv`
-contains predicted and true outputs/objectives, true regret, optimization
-error relative to the best neural solution found, model exploitation (predicted
-minus true objective gain), off-policy generalization error, violation metrics,
-solve time and recommended controls. `results/optimizer_true_optima.csv` records
-each numerical plant reference; `results/optimizer_control_summary.csv` and
-`results/optimizer_control_report.md` rank the five methods by actual
-feasibility, typical/tail true regret, model exploitation and speed. A figure
-and per-method convergence CSV are also exported. The true reference is a
-two-seed global search with local polishing, **not** a certified global
-optimum. Read the report's feasibility and tail-risk warnings: a higher
-predicted gain does not imply a safe or profitable closed-loop controller.
+The actuator **commands** in the constraints module are dimensionless. A
+training-derived 1st/99th-percentile transformation maps them to the
+**physical-unit controls** expected by the network and generating function.
+Do not apply `[0, 1]` command limits directly to the CSV's physical controls.
 
-The final section of notebook 05 runs a separate **full-dataset quality check**
-across all 8,000 observations and all five methods. Unlike the deeper
-100-scenario benchmark, this screening sweep uses eight optimizer
-steps/generations per method and a twelve-generation true-plant reference
-search with local polishing. It projects starting controls that fall outside
-normalized actuator bounds, records the original and projected setpoints,
-and never removes rows or modifies disturbances. The notebook prints the
-complete per-row quality, constraint-violation and true-plant reference
-matrices; they are also saved in
-`results/optimizer_full_dataset_quality_printout.txt` and
-`results/optimizer_full_dataset_*.csv` for searching and analysis. The
-generated `optimizer_full_dataset_report.md` ranks methods on **held-out
-test** rows; the full summary includes separate train, validation and test
-matrices. Projection and in-sample results must not be confused with
-historical operating performance or a deployment-ready controller.
+## Quick start
 
-Run `notebooks/06_closed_loop_simulation.ipynb` from `notebooks/` to replay the
-last 1,000 test disturbances with historical operator, Adam, and LBFGS
-controllers. All three start from the same reconstructed true-process state
-and use the same seeded measurement noise. At every step the optimizers
-minimize the frozen surrogate objective with fixed observed disturbances,
-apply one rate-feasible setpoint, and advance the original synthetic plant
-with its quality/energy lags. Output limits use fixed training-set quantiles
-and soft penalties; violations are logged both for predicted and measured
-outputs. Historical operator setpoints are not altered to obey limits.
-The notebook exports per-step trajectories, policy summaries, and disturbance,
-setpoint, output and objective/benefit figures to `results/closed_loop_*`.
-Economic benefit is **unitless**, not monetary: cumulative differences from
-the operator in measured quality and energy standardized using training
-scales, less 0.1 times squared normalized physical control moves. It excludes
-unmodeled operating costs and the surrogate's support/constraint penalties.
-Compare the exported model-prediction errors with the realized economic score:
-a lower surrogate objective does not imply better true-plant operation.
+From the project root, use a Python environment with Jupyter, NumPy, pandas,
+SciPy, Matplotlib, seaborn, scikit-learn, PyTorch, `nbformat` and `nbclient`.
+For example:
+
+```powershell
+python -m pip install jupyter numpy pandas scipy matplotlib seaborn scikit-learn torch nbformat nbclient ipykernel
+Set-Location notebooks
+jupyter lab
+```
+
+Open and **run all cells in order** in notebooks `01` through `06`. Notebook
+paths such as `../data/`, `../models/` and `../results/` assume that the kernel
+works from `notebooks/`. Notebook 05's all-row screening pass prints tens of
+thousands of lines and takes substantially longer than the others; the complete
+printout is also saved as a searchable text file.
+
+### Notebook roadmap
+
+| # | Notebook | Why run it | Key artifacts |
+|---:|---|---|---|
+| 01 | [Generate data](notebooks/01_generate_data.ipynb) | Build a smooth original plant with correlated AR disturbances, gradual operator actions, nonlinear steady-state responses, output lags and measurement noise; plot all variables. | `data/synthetic_process_data.csv` |
+| 02 | [Train model](notebooks/02_train_model.ipynb) | Fit a 10–32–32–16–2 SiLU PyTorch model; split in time *before* fitting scalers; use AdamW, validation-based stopping, a scheduler and gradient clipping. | `models/process_model.pt`, `models/*_scaler.pkl`, `results/training_metrics.csv`, training/parity/residual PNGs |
+| 03 | [Validate model](notebooks/03_validate_model.ipynb) | Measure held-out R², MAE and RMSE; inspect prediction and residual structure; calculate local automatic-differentiation sensitivities and conditional response surfaces. | `results/validation_*.csv`, `results/validation_*.png` |
+| 04 | [Optimize one point](notebooks/04_inverse_optimization.ipynb) | Freeze a seeded held-out disturbance scenario and optimize one bounded, rate-feasible control change using Adam. Compare predicted versus original **steady-state** improvement. | `results/inverse_optimization_*.csv`, convergence PNG |
+| 05 | [Compare optimizers](notebooks/05_compare_optimizers.ipynb) | Benchmark gradient solvers; compare Adam, LBFGS, PSO, DE and PSO+LBFGS with an approximate original-plant reference; screen all 8,000 rows. | `results/optimizer_benchmark_*`, `results/optimizer_control_*`, `results/optimizer_full_dataset_*` |
+| 06 | [Simulate closed loop](notebooks/06_closed_loop_simulation.ipynb) | Replay 1,000 identical disturbances and noise samples for historical operator, Adam and LBFGS policies against the **lagged original plant**. | `results/closed_loop_trajectories.csv`, `closed_loop_summary.csv`, trend PNGs |
+
+### Reusable constraint and objective code
+
+- [`src/objective_functions.py`](src/objective_functions.py) defines
+  `InverseProcessObjective`, a scalar differentiable loss combining
+  `-standardized_quality + standardized_energy + movement_penalty +
+  constraint_penalty + support_penalty`. Give it the *frozen* surrogate,
+  training-fitted scaler statistics, physical control bounds, physical
+  training-support bounds, five fixed disturbances, five candidate controls
+  and five previous controls. Optional output limits are in physical units.
+  Gradients flow to candidate controls, not model weights.
+- [`src/constraints.py`](src/constraints.py) provides **projection**,
+  **differentiable softplus penalties**, and **sigmoid reparameterization**
+  for single steps or batched MPC horizons. Normalized `u1`–`u5` command
+  ranges are `[0.2,1.0]`, `[0.1,0.9]`, `[0,1]`, `[0.2,1.0]`, `[0.1,0.9]`;
+  maximum change is `0.05` per control per step. Projection and sigmoid
+  enforce actuator and rate limits, whereas the softplus penalty only
+  *discourages* violations.
+
+The support envelope is **per variable**, not proof that a joint operating
+point was observed during training. The saved scaler pickles should only be
+loaded from trusted local artifacts; pickle is not safe for untrusted files.
+
+## How to read the optimization checks
+
+Notebook 05 deliberately separates three experiments:
+
+1. **Four-solver neural benchmark:** Adam, SGD, RMSprop and LBFGS each get 60
+   steps on the **same 100 feasible, seeded held-out test scenarios**.
+   `optimizer_benchmark_*.csv` and plots contain run-level results, stepwise
+   convergence, solver evaluations and a *neural-prediction-based* ranking.
+2. **Five-solver original-plant check:** Adam, LBFGS, particle swarm
+   optimization (**PSO**), differential evolution (**DE**) and hybrid
+   **PSO+LBFGS** use those same 100 scenarios. Independent, seeded DE searches
+   plus bounded local polishing establish an **approximate**, not certified,
+   true steady-state optimum on each scenario. See
+   [the 100-row report](results/optimizer_control_report.md) and
+   `optimizer_control_*.csv` for predicted/true output, error, feasibility
+   and tail-risk comparisons.
+3. **Full-data quality screening:** The same five methods run over **every
+   one of 8,000 rows** with a smaller screening budget: eight
+   steps/generations (hybrid: five PSO + three LBFGS), and a separate
+   12-generation DE plant reference with local polish. Starting controls
+   outside bounds are **projected and recorded**, not silently dropped;
+   disturbances are unchanged. The
+   [full-data report](results/optimizer_full_dataset_report.md) ranks the
+   held-out 1,200 test rows; the summary also separates 5,600 training and
+   1,200 validation rows. The **complete printed quality, violation, summary
+   and original-plant matrices** live in
+   [optimizer_full_dataset_quality_printout.txt](results/optimizer_full_dataset_quality_printout.txt)
+   and corresponding `optimizer_full_dataset_*.csv` files.
+
+| Quality check | Definition | What to watch |
+|---|---|---|
+| **Optimization error** | Candidate neural objective minus the best neural objective *found* for the same scenario. | Gap to a discovered solution, not a certified global minimum. |
+| **True regret** | Original-plant objective minus an independently searched original-plant reference. | Higher values mean missed true-process opportunity; the reference is approximate. |
+| **Model exploitation** | *Predicted objective improvement* minus *original-plant improvement* under the same penalties. | Positive values mean the surrogate overpromised. |
+| **Generalization error** | Absolute prediction error divided by training output scales, at starting and optimized controls. | Optimized controls can expose errors hidden at historical operating points. |
+| **Constraint satisfaction** | Actual quality/energy, marginal support, actuator and rate violations below the logged tolerance. | Hard command bounds do not imply hard output feasibility. |
+
+**Do not compare the deep and screening rankings as if they used equal budgets.**
+Likewise, training-row screening results are in-sample diagnostics; use the
+held-out split to discuss generalization. Solve time depends on hardware and
+does not include the cost of building the numerical true-process reference.
+
+## Closed-loop reality check
+
+Notebook 06 reconstructs the original plant's dynamic state from historical
+inputs, then subjects three policies to the same final 1,000 disturbances
+and the same seeded measurement noise. Operator setpoints are replayed
+**unchanged**, and their constraint breaches are logged rather than erased.
+Adam and LBFGS choose a new bounded control move at each step with the
+frozen surrogate; the **original** plant applies the move with quality and
+energy time constants of 8 and 15 samples.
+
+The economic score is a **unitless research proxy, not a currency estimate**:
+
+```text
+score = measured_quality_in_training_standard_deviations
+      - measured_energy_in_training_standard_deviations
+      - 0.1 × squared_control_moves_in_input_standard_deviations
+
+cumulative benefit = Σ(optimizer_score[t] - operator_score[t])
+```
+
+In the included simulation, both optimized policies **increase average
+quality but worsen the realized score** relative to the historical operator:
+Adam's cumulative benefit is approximately `-539.7` score points and LBFGS's
+is approximately `-608.9`. Their neural objectives improve, but the lagged
+true plant uses more energy. This mismatch is a *finding*, not an error to
+conceal: examine `closed_loop_summary.csv`, prediction-bias diagnostics,
+output-limit violations and trend plots before claiming a control benefit.
+
+## Repository layout
+
+```text
+notebooks/  01–06: executable experiment, narratives and plots
+src/        differentiable objective, reusable constraints and module stubs
+data/       generated sequential CSV
+models/     saved checkpoint and training-fitted scalers
+results/    diagnostics, optimization matrices, reports and figures
+tests/      focused constraint and objective tests
+```
+
+To run the focused module tests from the project root:
+
+```powershell
+python -m unittest discover -s tests -p "test_*.py" -v
+```
+
+**Next research steps:** evaluate uncertainty or ensembles under off-policy
+actions, account explicitly for state and lag during optimization, define
+plant-calibrated economics and hard safety constraints, and validate any
+proposed policy independently before attempting deployment.
