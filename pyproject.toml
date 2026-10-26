@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nn-optimization"
+version = "0.1.0"
+description = "Frozen forward-model inverse optimisation and advisory NMPC research"
+requires-python = ">=3.10"
+dependencies = ["numpy", "pandas", "matplotlib", "torch", "scikit-learn", "scipy", "casadi", "do-mpc==5.1.2", "PyYAML"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+notebooks = ["jupyter", "nbformat", "nbclient", "seaborn", "ipykernel"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["nn_optimization*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

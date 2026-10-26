@@ -1,0 +1,26 @@
+model_kind: temporary_static_lag_wrapper
+alpha_is_identified: false
+alpha: [0.11750309741540454, 0.06449301496838222]
+n_horizon: 8
+t_step: 1.0
+forecast_strategy: constant_current_value
+target_step_standard_deviations: [0.2, -0.2]
+target_step_sample: 6
+ipopt_max_iterations: 150
+ipopt_max_cpu_time: 10.0
+ipopt_tolerance: 0.00000001
+simulation_steps: 12
+plant_alpha: [0.09, 0.05]
+plant_gain: [1.03, 0.97]
+plant_bias: [0.15, 0.2]
+measurement_noise: [0.02, 0.02]
+unmeasured_disturbance: [0.0, 0.0]
+plant_delay_steps: 1
+seed: 42
+measurement_max_age: 2.0
+result_max_age: 1.0
+hold_last_good_seconds: 5.0
+max_recommendation_move_factor: 1.0
+minimum_confidence: null
+acceptable_statuses: [Solve_Succeeded, Solved_To_Acceptable_Level, Converged]
+output_path: results/aipc

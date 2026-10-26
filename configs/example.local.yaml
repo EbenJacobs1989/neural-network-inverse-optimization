@@ -1,0 +1,6 @@
+# Synthetic, non-confidential example. Not an approved operating configuration.
+model_config: configs/model.yaml
+inverse_config: configs/inverse_optimization.yaml
+mpc_config: configs/mpc.yaml
+deployment_mode: simulation_only
+plant_write_enabled: false

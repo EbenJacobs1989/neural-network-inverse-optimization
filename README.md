@@ -198,3 +198,56 @@ python -m unittest discover -s tests -p "test_*.py" -v
 actions, account explicitly for state and lag during optimization, define
 plant-calibrated economics and hard safety constraints, and validate any
 proposed policy independently before attempting deployment.
+
+## Modular AiPC Extension
+
+The existing notebooks and APIs above are preserved. The installable
+`nn_optimization` package adds a single model/scaler contract, native CasADi
+conversion, bounded Torch input optimisation, constrained IPOPT steady-state
+optimisation, and **do-mpc 5.1.2** dynamic NMPC. The production predictor remains
+the frozen forward neural network; no inverse neural network is trained.
+
+Steady-state optimisation chooses **where to operate**. NMPC chooses **how to
+move** using measured CV state, applied-MV memory and aligned forecasts. Because
+the saved NN is static, NMPC uses a clearly labelled temporary first-order lag
+wrapper. Example alpha values are not identified real-plant dynamics.
+
+From the repository root, in the selected environment:
+
+```powershell
+python -m pip install -e ".[test]"
+python scripts/validate_conversion.py
+python scripts/run_inverse_optimization.py
+python scripts/run_mpc_simulation.py --steps 12
+python scripts/benchmark_optimizers.py --repeats 2 --steps 8
+python -m pytest -q
+```
+
+Inspect the current environment first; do not unnecessarily upgrade an existing
+Torch installation. Dependencies and optional notebook tools are declared in
+[pyproject.toml](pyproject.toml). New configuration is in
+[configs/model.yaml](configs/model.yaml),
+[configs/inverse_optimization.yaml](configs/inverse_optimization.yaml) and
+[configs/mpc.yaml](configs/mpc.yaml). The checkpoint and trusted local scalers
+remain authoritative; physical unit symbols are not invented from signal names.
+
+New outputs go to ignored `results/aipc/`: conversion equivalence JSON,
+structured inverse results, simulation CSV/JSON/PNG, and benchmark CSV/JSON.
+The benchmark preserves the legacy experiments and compares Adam, LBFGS, PSO,
+DE, PSO+LBFGS and IPOPT under one new objective; separate closed-loop runs
+compare steady-state policies with NMPC on a deliberately mismatched original
+synthetic plant. These are synthetic research results, not production claims.
+
+Hard MV/rate/CV constraints and soft preferred CV limits are distinct. An
+independent governance gate checks solver status, finite values, freshness,
+envelopes and constraints before approval. Rejection causes a bounded approved
+hold or returns authority to external APC/DCS/manual control. A steady-state
+fallback is target-only and requires existing control's filter. **No plant-write
+interface is included, and no DCS/SIS protection is bypassed.**
+
+Read the [audit](docs/CURRENT_STATE_AUDIT.md),
+[architecture](docs/ARCHITECTURE.md), [model contract](docs/MODEL_CONTRACT.md),
+[formulations](docs/OPTIMIZATION_FORMULATION.md),
+[MPC implementation](docs/MPC_IMPLEMENTATION.md),
+[validation plan](docs/VALIDATION_PLAN.md), and
+[migration guide](docs/MIGRATION_GUIDE.md) before adapting the examples.

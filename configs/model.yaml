@@ -1,0 +1,43 @@
+name: synthetic_process_forward
+version: legacy-checkpoint-epoch-20
+framework: pytorch
+model_class: SequentialMLP
+model_type: static_current_output
+checkpoint: models/process_model.pt
+input_scaler: models/input_scaler.pkl
+output_scaler: models/output_scaler.pkl
+data_path: data/synthetic_process_data.csv
+hidden_sizes: [32, 32, 16]
+activation: SiLU
+checkpoint_dtype: float32
+dtype: float64
+device: cpu
+sampling_interval: 1.0
+sampling_unit: synthetic_sample
+train_fraction: 0.70
+validation_fraction: 0.15
+support_quantiles: [0.01, 0.99]
+missing_values: reject
+filtering: none
+timestamp_alignment: same-row synthetic samples; real analyser delays unknown
+confidence: null
+conversion_prediction_atol: 1.0e-9
+conversion_jacobian_atol: 1.0e-8
+native_prediction_atol: 2.0e-5
+native_jacobian_atol: 2.0e-5
+conversion_seed: 42
+conversion_random_samples: 64
+inputs:
+  - {name: d1_feed_grade, role: DV, unit: synthetic_generator_unit}
+  - {name: d2_hardness, role: DV, unit: synthetic_generator_unit}
+  - {name: d3_moisture, role: DV, unit: synthetic_generator_unit}
+  - {name: d4_impurity, role: DV, unit: synthetic_generator_unit}
+  - {name: d5_ambient, role: DV, unit: synthetic_generator_unit}
+  - {name: u1_feed_rate, role: MV, unit: synthetic_generator_unit}
+  - {name: u2_water_rate, role: MV, unit: synthetic_generator_unit}
+  - {name: u3_reagent_rate, role: MV, unit: synthetic_generator_unit}
+  - {name: u4_speed, role: MV, unit: synthetic_generator_unit}
+  - {name: u5_temperature_setpoint, role: MV, unit: synthetic_generator_unit}
+outputs:
+  - {name: y1_quality, role: CV, unit: synthetic_generator_unit}
+  - {name: y2_energy_load, role: KPI, unit: synthetic_generator_unit}

@@ -1,0 +1,33 @@
+command_lower: [0.2, 0.1, 0.0, 0.2, 0.1]
+command_upper: [1.0, 0.9, 1.0, 1.0, 0.9]
+command_max_move: [0.05, 0.05, 0.05, 0.05, 0.05]
+target_standard_deviations: [0.25, -0.25]
+tracking_weights: [1.0, 1.0]
+terminal_weights: [2.0, 2.0]
+economic_output_coefficients: [-1.0, 1.0]
+economic_mv_coefficients: [0, 0, 0, 0, 0]
+movement_weights: [0.1, 0.1, 0.1, 0.1, 0.1]
+regularisation_weight: 0.0
+soft_weights: [20.0, 20.0]
+soft_lower_standard_deviations: [-0.5, -3.0]
+soft_upper_standard_deviations: [3.0, 0.5]
+hard_lower_standard_deviations: [-5.0, -5.0]
+hard_upper_standard_deviations: [5.0, 5.0]
+envelope_margin: 0.0
+feasibility_tolerance: 0.000001
+multistart: 3
+seed: 42
+torch_method: Adam
+torch_iterations: 120
+torch_learning_rate: 0.06
+gradient_tolerance: 0.000001
+ipopt_max_iterations: 250
+ipopt_max_cpu_time: 15.0
+ipopt_tolerance: 0.00000001
+pso_particles: 20
+pso_iterations: 30
+pso_inertia: 0.7
+pso_cognitive: 1.4
+pso_social: 1.4
+benchmark_repeats: 3
+output_path: results/aipc
